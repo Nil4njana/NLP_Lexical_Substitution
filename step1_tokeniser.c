@@ -3,7 +3,7 @@
 #include <ctype.h>
 #include "step1_tokeniser.h"
 
-/* 
+/* =============================================================
  * ABBREVIATION TABLE
  * Words that end with a period but are NOT sentence boundaries.
  * The period is kept attached to the token (e.g. "Dr." stays "Dr.")
