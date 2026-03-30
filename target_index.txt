@@ -1,0 +1,4 @@
+6
+# target word  : went
+# total tokens : 9
+# occurrences  : 1
