@@ -1,4 +1,4 @@
-# NLP Lexical Substitution Pipeline
+# NLP Lexical Substitution
 
 A hybrid C/Python NLP pipeline for lexical substitution. It takes a target text and a target word, deeply processes the linguistic structure in C (Tokenization, POS tagging, Lemmatization), and then leverages Python with WordNet and SentenceTransformers to find, rank, and correctly inflect the best synonymous word replacements.
 
