@@ -1,0 +1,22 @@
+# Python Cache
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+
+# Windows Executables
+*.exe
+
+# macOS/Linux Executables (Compiled C binaries)
+step1_tokeniser
+step3_lowercase
+step4_target
+step5_pos
+step6_lemma
+
+# Generated Text Files
+*.txt
+
+# Keep requirements.txt (since it's a dependency list, not generated output)
+!requirements.txt

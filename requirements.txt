@@ -1,0 +1,5 @@
+nltk
+sentence-transformers
+torch
+pyinflect
+spacy
