@@ -55,7 +55,7 @@ def load_candidates(path='candidates.txt') -> list:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def run() -> list:
+def run(method: str = 'sbert') -> list:
     """
     Run Module 2.  Returns list of (lemma, cosine_score) tuples
     and writes embedding_scores.txt.
@@ -69,29 +69,69 @@ def run() -> list:
 
     print(f"[Embed] Original sentence  : {original_sentence}")
     print(f"[Embed] Candidates loaded  : {len(candidates)}")
-    print(f"[Embed] Loading SBERT model: {MODEL_NAME}  (downloads on first run)")
-
-    model = SentenceTransformer(MODEL_NAME)
-
-    # Encode original + all candidate sentences in one batch (efficient)
-    all_sentences = [original_sentence] + [sent for _, sent in candidates]
-    print(f"[Embed] Encoding {len(all_sentences)} sentences...")
-    embeddings = model.encode(all_sentences, convert_to_tensor=True,
-                               show_progress_bar=False)
-
-    orig_emb  = embeddings[0]
-    cand_embs = embeddings[1:]
+    print(f"[Embed] Using Embedding Method: {method.upper()}")
 
     scores = []
-    for i, (lemma, _) in enumerate(candidates):
-        cos_sim = util.cos_sim(orig_emb, cand_embs[i]).item()
-        scores.append((lemma, cos_sim))
+    substituted_sentences = [sent for _, sent in candidates]
+    cand_lemmas = [lemma for lemma, _ in candidates]
+
+    if method == 'sbert':
+        global _sbert_model
+        from sentence_transformers import SentenceTransformer, util
+        if '_sbert_model' not in globals() or _sbert_model is None:
+            print(f"[Embed] Loading SBERT model: {MODEL_NAME}  (downloads on first run)")
+            _sbert_model = SentenceTransformer(MODEL_NAME)
+        model = _sbert_model
+        
+        all_sentences = [original_sentence] + substituted_sentences
+        print(f"[Embed] Encoding {len(all_sentences)} sentences...")
+        embeddings = model.encode(all_sentences, convert_to_tensor=True,
+                                   show_progress_bar=False)
+        orig_emb  = embeddings[0]
+        cand_embs = embeddings[1:]
+        
+        for i, lemma in enumerate(cand_lemmas):
+            cos_sim = util.cos_sim(orig_emb, cand_embs[i]).item()
+            scores.append((lemma, cos_sim))
+            
+    elif method == 'lexconsub':
+        from embedding_module_ls import LexSubConEmbedder
+        from sklearn.metrics.pairwise import cosine_similarity
+        
+        model = LexSubConEmbedder()
+        print(f"[Embed] Encoding 1 original + {len(substituted_sentences)} candidates...")
+        
+        orig_emb  = model.encode([original_sentence])
+        cand_embs = model.encode(substituted_sentences)
+        
+        cos_scores = cosine_similarity(orig_emb, cand_embs)[0]
+        for i, lemma in enumerate(cand_lemmas):
+            scores.append((lemma, float(cos_scores[i])))
+            
+    elif method == 'xldurel':
+        from embedding_module_xldurel import xl_durel_score
+        
+        with open('input.txt', 'r', encoding='utf-8') as f:
+            target_word = f.readlines()[1].strip()
+            
+        print(f"[Embed] Encoding 1 original + {len(cand_lemmas)} candidates with XL-DURel...")
+        
+        results = xl_durel_score(original_sentence, target_word, cand_lemmas)
+        
+        # xl_durel_score returns a list of (candidate, score) tuples in the same order
+        for item in results:
+            # item is (candidate, score)
+            scores.append(item)
+            
+    else:
+        print(f"[Embed] Unknown embedding method: {method}")
+        return []
 
     with open('embedding_scores.txt', 'w', encoding='utf-8') as f:
         for lemma, score in scores:
             f.write(f"{lemma}|{score:.6f}\n")
 
-    print(f"[Embed] Saved {len(scores)} SBERT scores → embedding_scores.txt")
+    print(f"[Embed] Saved {len(scores)} {method.upper()} scores -> embedding_scores.txt")
     return scores
 
 

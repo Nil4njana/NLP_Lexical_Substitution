@@ -111,7 +111,7 @@ static int morphy_via_python(const char *word, const char *wn_pos,
     fclose(script);
 
     /* ── Execute ──────────────────────────────────────────── */
-    int rc = system("python3 _morphy_tmp.py > _morphy_out.txt 2>/dev/null");
+    int rc = system("python _morphy_tmp.py > _morphy_out.txt 2>NUL");
 
     /* ── Read result ──────────────────────────────────────── */
     int success = 0;

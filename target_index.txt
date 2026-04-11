@@ -1,4 +1,4 @@
-6
-# target word  : went
-# total tokens : 9
+3
+# target word  : calm
+# total tokens : 6
 # occurrences  : 1
