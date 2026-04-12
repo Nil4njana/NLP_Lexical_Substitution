@@ -10,23 +10,23 @@ def list_to_lower_set(gold_str: str) -> set:
     return {w.strip().lower() for w in str(gold_str).split('|') if w.strip()}
 
 def main():
-    dataset_file = 'lexsub_polysemy_100.ods'
+    dataset_file = 'nlp_dataset - Sheet1 (2).csv'
     print(f"Loading dataset: {dataset_file}")
     
     try:
-        df = pd.read_excel(dataset_file, engine='odf')
+        df = pd.read_csv(dataset_file)
     except Exception as e:
         print(f"Failed to load dataset: {e}")
         sys.exit(1)
 
     # Validate columns
-    required_cols = ['sentence', 'target', 'gold_substitutes']
+    required_cols = ['sentence', 'target word', 'gold substitutes']
     for col in required_cols:
         if col not in df.columns:
             print(f"Error: Dataset is missing required column '{col}'. Columns found: {df.columns.tolist()}")
             sys.exit(1)
 
-    methods = ['sbert', 'lexconsub', 'xldurel']
+    methods = ['sbert', 'infersent', 'glove', 'xldurel']
     
     report_lines = []
     failure_lines = []
@@ -48,10 +48,11 @@ def main():
         correct_count = 0
         total_count = 0
         
+        # Evaluate all samples
         for idx, row in df.iterrows():
             sentence = str(row['sentence']).strip()
-            target_word = str(row['target']).strip()
-            gold_str = str(row['gold_substitutes']).strip()
+            target_word = str(row['target word']).strip()
+            gold_str = str(row['gold substitutes']).strip()
             
             gold_set = list_to_lower_set(gold_str)
             
@@ -62,10 +63,15 @@ def main():
                 # evaluate_single catches its own prints if verbose=False
                 _, top_candidates = evaluate_single(sentence, target_word, embed_method=method, verbose=False)
             except Exception as e:
-                import traceback
                 print(f"\\nException on row {idx}: {e}")
-                traceback.print_exc()
                 top_candidates = []
+                
+            target_pos = "UNKNOWN"
+            try:
+                with open('target_pos.txt', 'r', encoding='utf-8') as f:
+                    target_pos = f.readline().strip()
+            except:
+                pass
                 
             total_count += 1
             
@@ -83,14 +89,14 @@ def main():
                 else:
                     failure_lines.append(f"Row {idx+1}:")
                     failure_lines.append(f"  Sentence  : {sentence}")
-                    failure_lines.append(f"  Target    : {target_word}")
+                    failure_lines.append(f"  Target    : {target_word}  (POS: {target_pos})")
                     failure_lines.append(f"  Predicted : {predicted_inflected} / lemma: {predicted_lemma}")
                     failure_lines.append(f"  Gold Subs : {', '.join(gold_set)}")
                     failure_lines.append(f"  Top 3     : {', '.join([c['inflected'] for c in top_candidates[:3]])}\n")
             else:
                 failure_lines.append(f"Row {idx+1}:")
                 failure_lines.append(f"  Sentence  : {sentence}")
-                failure_lines.append(f"  Target    : {target_word}")
+                failure_lines.append(f"  Target    : {target_word}  (POS: {target_pos})")
                 failure_lines.append(f"  Predicted : [NO CANDIDATES GENERATED]")
                 failure_lines.append(f"  Gold Subs : {', '.join(gold_set)}\n")
                 
