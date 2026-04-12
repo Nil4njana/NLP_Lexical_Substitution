@@ -7,11 +7,11 @@ Writes : output.txt
 
 Steps:
   1. Load SBERT cosine scores from embedding_scores.txt
-  2. Compute WordNet frequency scores (proxy for corpus frequency)
-  3. Min-max normalise both score sets to [0, 1]
-  4. Combine: final = α × sbert_norm + (1−α) × freq_norm   (default α=0.7)
-  5. Sort descending → Top-K candidates
-  6. Morphological inflection of best lemma → target form  (via pyinflect)
+  2. Compute contextual Bigram frequency scores (Norvig corpus)
+  3. Sort semantic candidates descending by SBERT similarity
+  4. Select a semantic shortlist of top 20 candidates
+  5. Apply Reciprocal Rank Fusion (RRF) to shortlist
+  6. Morphological inflection of best lemma → target form (via pyinflect)
   7. Replace target token in original sentence → output sentence
   8. Save output.txt + print ranked table
 """
@@ -171,15 +171,6 @@ def get_bigram_score(candidate: str,
     first, last = words[0], words[-1]
     return left_counts.get(first, 0) + right_counts.get(last, 0)
 
-def min_max_normalise(values: list) -> list:
-    """Scale values to [0, 1].  If all values are equal, return 0.5 for each."""
-    if not values:
-        return values
-    mn, mx = min(values), max(values)
-    if mx == mn:
-        return [0.5] * len(values)
-    return [(v - mn) / (mx - mn) for v in values]
-
 # ── Morphological inflection ──────────────────────────────────────────────────
 
 def inflect(lemma: str, ptb_tag: str) -> str:
@@ -213,10 +204,9 @@ def reconstruct_sentence(tokens: list) -> str:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def run(alpha: float = 0.7, top_k: int = 5):
+def run(top_k: int = 5):
     """
     Run Module 3.
-    alpha  : weight for SBERT score  (1-alpha goes to WordNet freq score)
     top_k  : number of top candidates to report
     Returns: (output_sentence, top_candidates_list)
     """
@@ -238,53 +228,71 @@ def run(alpha: float = 0.7, top_k: int = 5):
     print(f"[Score] Inflecting {len(candidates)} candidates to POS '{ptb_pos}' ...")
     inflected_map = {c: inflect(c, ptb_pos) for c in candidates}
 
-    # ── Bigram context setup ──────────────────────────────────────────────────
+    # ── Step 1: Initial SBERT Ranking & Shortlist ──────────────────────────────
+    # We rank by SBERT first to get the most semantically relevant candidates.
+    print(f"[Score] Ranking {len(candidates)} candidates by semantic similarity...")
+    ranked_by_sbert = sorted(candidates, key=lambda c: sbert_scores[c], reverse=True)
+    
+    # We shortlist the top 20 candidates for heavy bigram re-ranking.
+    shortlist = ranked_by_sbert[:20]
+    
+    # ── Step 2: Bigram context scoring for the shortlist ──────────────────────
     prev_word = tokens[target_index - 1].lower() if target_index > 0 else None
     next_word = tokens[target_index + 1].lower() if target_index < len(tokens) - 1 else None
     _ensure_bigram_file()
     left_counts, right_counts = _get_context_bigrams_cached(prev_word, next_word)
 
-    # ── Step 1 & 2: Raw scores (bigram uses inflected surface form) ───────────
-    import math
-    sbert_raw  = [sbert_scores[c] for c in candidates]
-    bigram_raw = [get_bigram_score(inflected_map[c], left_counts, right_counts)
-                  for c in candidates]
-    bigram_log = [math.log1p(x) for x in bigram_raw]
+    bigram_scores = {}
+    for cand in shortlist:
+        surface_form = inflected_map[cand]
+        bigram_scores[cand] = get_bigram_score(surface_form, left_counts, right_counts)
 
-    # ── Step 3: Normalise ─────────────────────────────────────────────────────
-    sbert_norm  = min_max_normalise(sbert_raw)
-    bigram_norm = min_max_normalise(bigram_log)
+    # ── Step 3: Reciprocal Rank Fusion (RRF) ──────────────────────────────────
+    # Formula: Score = 1/(k + rank_sbert) + 1/(k + rank_ngram)
+    # k is the smoothing constant (default 60)
+    K = 60
+    
+    # Pre-rank the shortlist by n-gram to get the ngram ranks
+    ranked_by_ngram = sorted(shortlist, key=lambda c: bigram_scores[c], reverse=True)
+    
+    sbert_rank_map = {cand: i+1 for i, cand in enumerate(ranked_by_sbert)}
+    ngram_rank_map = {cand: i+1 for i, cand in enumerate(ranked_by_ngram)}
 
-    # ── Step 4: Weighted combination ──────────────────────────────────────────
     rows = []
-    for i, cand in enumerate(candidates):
-        combined = alpha * sbert_norm[i] + (1 - alpha) * bigram_norm[i]
+    for cand in shortlist:
+        r_sbert = sbert_rank_map[cand]
+        r_ngram = ngram_rank_map[cand]
+        
+        # Combined RRF score
+        rrf_score = (1.0 / (K + r_sbert)) + (1.0 / (K + r_ngram))
+        
         rows.append({
             'lemma':     cand,
             'inflected': inflected_map[cand],
-            'combined':  combined,
-            'sbert':     sbert_raw[i],
-            'ngram':     bigram_raw[i],
+            'combined':  rrf_score,
+            'sbert':     sbert_scores[cand],
+            'ngram':     bigram_scores[cand],
+            'r_sbert':   r_sbert,
+            'r_ngram':   r_ngram
         })
 
-    # ── Step 5: Sort → Top-K ──────────────────────────────────────────────────
-    rows.sort(key=lambda r: (r['combined'], r['ngram']), reverse=True)
+    # ── Step 4: Final Sort ────────────────────────────────────────────────────
+    rows.sort(key=lambda r: r['combined'], reverse=True)
     top = rows[:top_k]
 
-    # ── Step 6: Print ranked table ────────────────────────────────────────────
-    BAR = "─" * 64
+    # ── Step 5: Print ranked table ────────────────────────────────────────────
+    BAR = "-" * 80
     print(f"\n[Score] {BAR}")
-    print(f"[Score]  TOP-{top_k} RANKED CANDIDATES   "
-          f"(α={alpha} × SBERT  +  {1-alpha:.1f} × N-gram)")
+    print(f"[Score]  TOP-{top_k} RANKED CANDIDATES (Reciprocal Rank Fusion, k={K})")
     print(f"[Score] {BAR}")
-    header = f"  {'Rank':<5} {'Lemma':<15} {'Inflected':<15} {'SBERT':>8} {'N-gram':>10} {'Combined':>10}"
+    header = f"  {'Rank':<5} {'Lemma':<15} {'Inflected':<15} {'SBERT':>10} {'N-gram':>10} {'Combined':>12}"
     print(header)
-    print(f"  {'----':<5} {'-----':<15} {'---------':<15} {'-----':>8} {'------':>10} {'--------':>10}")
+    print(f"  {'----':<5} {'-----':<15} {'---------':<15} {'-----':>10} {'------':>10} {'----------':>12}")
     for rank, r in enumerate(top, 1):
         print(f"  {rank:<5} {r['lemma']:<15} {r['inflected']:<15} "
-              f"{r['sbert']:>8.4f} {r['ngram']:>10} {r['combined']:>10.4f}")
+              f"{r['sbert']:>10.4f} {r['ngram']:>10} {r['combined']:>12.6f}")
 
-    # ── Step 7: Morphological inflection of best candidate ───────────────────
+    # ── Step 6: Final Selection ───────────────────────────────────────────────
     best_lemma    = top[0]['lemma']
     best_combined = top[0]['combined']
     inflected     = top[0]['inflected']   # already computed before scoring
@@ -319,8 +327,7 @@ def run(alpha: float = 0.7, top_k: int = 5):
         f.write(f"Target lemma      : {target_lemma}\n")
         f.write(f"Target POS        : {ptb_pos}\n")
         f.write(f"Best substitute   : {inflected}  (lemma: {best_lemma})\n")
-        f.write(f"Combined score    : {best_combined:.4f}\n")
-        f.write(f"  (α={alpha} × SBERT  +  {round(1-alpha,2)} × N-gram bigram)\n")
+        f.write(f"Combined score    : {best_combined:.6f} (RRF, k=60)\n")
         f.write(f"\nFull top-{top_k} ranking:\n")
         f.write(f"  {'Rank':<5} {'Lemma':<20} {'Inflected':<20} "
                 f"{'SBERT':>8} {'N-gram':>10} {'Combined':>10}\n")
