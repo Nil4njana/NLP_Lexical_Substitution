@@ -36,7 +36,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR  = os.path.join(SCRIPT_DIR, '.infersent_cache')
 
 # InferSent V1 uses GloVe 840B 300d
-GLOVE_URL    = 'https://nlp.stanford.edu/data/glove.840B.300d.zip'
+GLOVE_URL    = 'https://huggingface.co/stanfordnlp/glove/resolve/main/glove.840B.300d.zip'
 GLOVE_FILE   = 'glove.840B.300d.txt'
 MODEL_URL    = 'https://dl.fbaipublicfiles.com/infersent/infersent1.pkl'
 MODEL_FILE   = 'infersent1.pkl'
@@ -73,8 +73,14 @@ def _ensure_glove():
         print()  # newline
 
     print(f"[InferSent] Extracting {GLOVE_FILE} ...")
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        zf.extract(GLOVE_FILE, CACHE_DIR)
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extract(GLOVE_FILE, CACHE_DIR)
+    except Exception as e:
+        print(f"[InferSent] ERROR: Corrupted zip file detected ({e}).")
+        print(f"[InferSent] Deleting {zip_path} so a fresh download can be attempted.")
+        os.remove(zip_path)
+        sys.exit(1)
 
     return glove_path
 
@@ -99,12 +105,16 @@ def _load_model(sentences):
         _infersent.update_vocab(sentences, tokenize=True)
         return _infersent
 
-    # Ensure models.py is available (downloaded during setup)
+    # Ensure models.py is available
     if not os.path.isfile(MODELS_PY):
-        print(f"[InferSent] ERROR: {MODELS_PY} not found.")
-        print(f"[InferSent] Please run: curl -Lo .infersent_cache/models.py "
-              f"https://raw.githubusercontent.com/facebookresearch/InferSent/main/models.py")
-        sys.exit(1)
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        print(f"[InferSent] Downloading models.py helper from Facebook Research...")
+        url = "https://raw.githubusercontent.com/facebookresearch/InferSent/main/models.py"
+        try:
+            urllib.request.urlretrieve(url, MODELS_PY)
+        except Exception as e:
+            print(f"[InferSent] ERROR downloading models.py: {e}")
+            sys.exit(1)
 
     # Add cache dir to path so we can import InferSent class
     if CACHE_DIR not in sys.path:
