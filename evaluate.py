@@ -10,7 +10,7 @@ def list_to_lower_set(gold_str: str) -> set:
     return {w.strip().lower() for w in str(gold_str).split('|') if w.strip()}
 
 def main():
-    dataset_file = 'nlp_dataset - Sheet1 (2).csv'
+    dataset_file = 'nlp_dataset - Sheet1 (3).csv'
     print(f"Loading dataset: {dataset_file}")
     
     try:
