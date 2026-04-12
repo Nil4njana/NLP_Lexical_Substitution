@@ -94,19 +94,17 @@ def run(method: str = 'sbert') -> list:
             cos_sim = util.cos_sim(orig_emb, cand_embs[i]).item()
             scores.append((lemma, cos_sim))
             
-    elif method == 'lexconsub':
-        from embedding_module_ls import LexSubConEmbedder
-        from sklearn.metrics.pairwise import cosine_similarity
+    elif method == 'glove':
+        import embedding_glove
+        print(f"[Embed] Computing averaged word embeddings (GloVe 100d) for "
+              f"{len(candidates)} candidates...")
+        scores = embedding_glove.run()
         
-        model = LexSubConEmbedder()
-        print(f"[Embed] Encoding 1 original + {len(substituted_sentences)} candidates...")
-        
-        orig_emb  = model.encode([original_sentence])
-        cand_embs = model.encode(substituted_sentences)
-        
-        cos_scores = cosine_similarity(orig_emb, cand_embs)[0]
-        for i, lemma in enumerate(cand_lemmas):
-            scores.append((lemma, float(cos_scores[i])))
+    elif method == 'infersent':
+        import embedding_infersent
+        print(f"[Embed] Computing BiLSTM sentence embeddings (InferSent) for "
+              f"{len(candidates)} candidates...")
+        scores = embedding_infersent.run()
             
     elif method == 'xldurel':
         from embedding_module_xldurel import xl_durel_score
